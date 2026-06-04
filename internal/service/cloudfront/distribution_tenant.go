@@ -275,6 +275,12 @@ func (r *distributionTenantResource) Create(ctx context.Context, req resource.Cr
 
 	conn := r.Meta().CloudFrontClient(ctx)
 
+	// Save the plan's customizations value. When managed_certificate_request is
+	// used, CloudFront auto-populates customizations.certificate server-side.
+	// We must preserve the plan's value to avoid Terraform's "inconsistent result
+	// after apply" error (block count changed from 0 to 1).
+	planCustomizations := data.Customizations
+
 	name := fwflex.StringValueFromFramework(ctx, data.Name)
 	var input cloudfront.CreateDistributionTenantInput
 	resp.Diagnostics.Append(fwflex.Expand(ctx, data, &input)...)
@@ -352,6 +358,13 @@ func (r *distributionTenantResource) Create(ctx context.Context, req resource.Cr
 
 			data.ETag = fwflex.StringToFramework(ctx, refreshedOutput.ETag)
 		}
+	}
+
+	// Restore the plan's customizations to prevent "inconsistent result after apply"
+	// when managed_certificate_request auto-populates the certificate block.
+	// The server-populated certificate will be picked up on the next Read/refresh.
+	if !data.ManagedCertificateRequest.IsNull() && !data.ManagedCertificateRequest.IsUnknown() {
+		data.Customizations = planCustomizations
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
